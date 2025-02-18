@@ -1,17 +1,15 @@
 import sys
 import gi
-import os
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 from common.bus_call import bus_call
 from common.FPS import PERF_DATA
 from common.utils import long_to_uint64
 import pyds
-import json
-import websocket
 import argparse
-from datetime import datetime
 
+no_display = False
+silent = False
 perf_data = None
 
 MAX_TIME_STAMP_LEN = 32
@@ -369,13 +367,21 @@ def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None):
     msgbroker.set_property('conn-str', conn_str)
 
     # Create the sink (display output)
-    sink = Gst.ElementFactory.make('nv3dsink', 'sink')
-    if not sink:
-        print("Sink element could not be created!")
-        sys.exit(1)
+    if no_display:
+        sink = Gst.ElementFactory.make("fakesink", "fakesink")
+        if not sink:
+            print("Unable to create fake sink")
+            sys.exit(1)
+        sink.set_property('enable-last-sample', 0)
+    else:
+        sink = Gst.ElementFactory.make("nv3dsink", "nv3d-sink")
+        if not sink:
+            print("Unable to create nv3dsink")
+            sys.exit(1)
+       
     # if live video source or max 30 fps framerate, set to true
     sink.set_property('sync', 0)
-
+        
     # Add elements to pipeline
     pipeline.add(primary_gie)
     pipeline.add(tracker)
@@ -438,7 +444,8 @@ def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None):
     else:
         nvanalytics_src_pad.add_probe(Gst.PadProbeType.BUFFER, nvanalytics_src_pad_buffer_probe, 0)
         # perf callback function to print fps every 5 sec
-        GLib.timeout_add(1000, perf_data.perf_print_callback)
+        if not silent:
+            GLib.timeout_add(1000, perf_data.perf_print_callback)
         
     # Start playing the pipeline
     pipeline.set_state(Gst.State.PLAYING)
@@ -484,6 +491,21 @@ def parse_args():
         default="localhost;9092;quickstart-events",
         help="Connection string of backend server in the format host;port;topic", 
         metavar="STR")
+    parser.add_argument(
+        "--no-display",
+        action="store_true",
+        default=False,
+        dest='no_display',
+        help="Disable display of video output",
+    )
+    parser.add_argument(
+        "-s",
+        "--silent",
+        action="store_true",
+        default=False,
+        dest='silent',
+        help="Disable verbose output",
+    )
    
     # Check input arguments
     if len(sys.argv) == 1:
@@ -495,6 +517,11 @@ def parse_args():
     pgie = args.pgie
     config = args.configfile
     conn_str = args.conn_str
+
+    global no_display
+    global silent
+    no_display = args.no_display
+    silent = args.silent
    
     if config and not pgie or pgie and not config:
         sys.stderr.write ("\nEither pgie or configfile is missing. Please specify both! Exiting...\n\n\n\n")
