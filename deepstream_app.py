@@ -1,14 +1,13 @@
 import sys
 import gi
 gi.require_version('Gst', '1.0')
-from gi.repository import GLib, Gst
+from gi.repository import GLib, Gst, GstRtspServer
 from common.bus_call import bus_call
 from common.FPS import PERF_DATA
 from common.utils import long_to_uint64
 import pyds
 import argparse
 
-no_display = False
 silent = False
 perf_data = None
 
@@ -249,7 +248,7 @@ def create_source_bin(index,uri):
 
 # DeepStream configuration for the application
 
-def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None):
+def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None, display=None):
     
     # initialise performance tracking
     global perf_data
@@ -367,12 +366,44 @@ def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None):
     msgbroker.set_property('conn-str', conn_str)
 
     # Create the sink (display output)
-    if no_display:
+    if display != None and display == "no-display":
         sink = Gst.ElementFactory.make("fakesink", "fakesink")
         if not sink:
             print("Unable to create fake sink")
             sys.exit(1)
         sink.set_property('enable-last-sample', 0)
+    elif display != None and display == "rtsp":
+
+        nvvidconv_postosd = Gst.ElementFactory.make("nvvideoconvert", "convertor_postosd")
+        if not nvvidconv_postosd:
+            sys.stderr.write(" Unable to create nvvidconv_postosd \n")
+        # Create a caps filter
+        caps = Gst.ElementFactory.make("capsfilter", "filter")
+        caps.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=I420"))
+        
+        # Make the encoder
+        
+        encoder = Gst.ElementFactory.make("nvv4l2h264enc", "encoder")
+        if not encoder:
+            sys.stderr.write(" Unable to create encoder")
+        encoder.set_property('bitrate', 4000000)
+        encoder.set_property('preset-level', 1)
+        encoder.set_property('insert-sps-pps', 1)
+            
+        # Make the payload-encode video into RTP packets
+        rtppay = Gst.ElementFactory.make("rtph264pay", "rtppay")
+        if not rtppay:
+            sys.stderr.write(" Unable to create rtppay")
+        
+        # Make the UDP sink
+        updsink_port_num = 5400
+        sink = Gst.ElementFactory.make("udpsink", "udpsink")
+        if not sink:
+            sys.stderr.write(" Unable to create udpsink")
+        
+        sink.set_property('host', '224.224.255.255')
+        sink.set_property('port', updsink_port_num)
+        sink.set_property('async', False)
     else:
         sink = Gst.ElementFactory.make("nv3dsink", "nv3d-sink")
         if not sink:
@@ -391,6 +422,11 @@ def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None):
     pipeline.add(osd)
     pipeline.add(msgconv)
     pipeline.add(msgbroker)
+    if display != None and display == "rtsp":
+        pipeline.add(nvvidconv_postosd)
+        pipeline.add(caps)
+        pipeline.add(encoder)
+        pipeline.add(rtppay)
     pipeline.add(sink)
     
     # Create queue elements for asynchronous pipeline
@@ -429,13 +465,35 @@ def main(stream_path, requested_pgie=None, pgie_config=None, conn_str=None):
     tee_render_pad.link(sink_pad2)
     queueT1.link(msgconv)
     msgconv.link(msgbroker)
-    queueT2.link(sink)
+    if display != None and display == "rtsp":
+        queueT2.link(nvvidconv_postosd)
+        nvvidconv_postosd.link(caps)
+        caps.link(encoder)
+        encoder.link(rtppay)
+        rtppay.link(sink)
+    else:
+        queueT2.link(sink)
     
     # Initialize loop
     loop = GLib.MainLoop()
     bus = pipeline.get_bus()
     bus.add_signal_watch()
     bus.connect ("message", bus_call, loop)
+
+    if display != None and display == "rtsp":
+        # Start streaming
+        rtsp_port_num = 8554
+        
+        server = GstRtspServer.RTSPServer.new()
+        server.props.service = "%d" % rtsp_port_num
+        server.attach(None)
+        
+        factory = GstRtspServer.RTSPMediaFactory.new()
+        factory.set_launch( "( udpsrc name=pay0 port=%d buffer-size=524288 caps=\"application/x-rtp, media=video, clock-rate=90000, encoding-name=(string)%s, payload=96 \" )" % (updsink_port_num, "H264"))
+        factory.set_shared(True)
+        server.get_mount_points().add_factory("/0", factory)
+        
+        print("\n *** DeepStream: Launched RTSP Streaming at rtsp://localhost:%d/0 ***\n\n" % rtsp_port_num)
     
     # Add probes
     nvanalytics_src_pad=nvanalytics.get_static_pad("src")
@@ -492,11 +550,11 @@ def parse_args():
         help="Connection string of backend server in the format host;port;topic", 
         metavar="STR")
     parser.add_argument(
-        "--no-display",
-        action="store_true",
-        default=False,
-        dest='no_display',
-        help="Disable display of video output",
+        "-d",
+        "--display",
+        default=None,
+        help="Display type for video output",
+        choices=["osd", "no-display", "rtsp"],
     )
     parser.add_argument(
         "-s",
@@ -518,9 +576,8 @@ def parse_args():
     config = args.configfile
     conn_str = args.conn_str
 
-    global no_display
     global silent
-    no_display = args.no_display
+    display = args.display
     silent = args.silent
    
     if config and not pgie or pgie and not config:
@@ -529,9 +586,9 @@ def parse_args():
         sys.exit(1)
     
     print(vars(args))
-    return stream_path, pgie, config, conn_str
+    return stream_path, pgie, config, conn_str, display
 
 
 if __name__ == "__main__":
-    stream_path, pgie, config, conn_str = parse_args()
-    sys.exit(main(stream_path, pgie, config, conn_str))
+    stream_path, pgie, config, conn_str, display = parse_args()
+    sys.exit(main(stream_path, pgie, config, conn_str, display))
