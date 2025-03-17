@@ -1,4 +1,8 @@
-Prerequisites:
+![vehicle detection and tracking](example.output.png)
+This repo demonstrates a deployment of an Nvidia Deepstream application to a Jetson device using AWS Greengrass V2
+
+# Usage
+## Prerequisites:
 
 Nvidia Jetpack >=5.1.4
 Deepstream SDK >= 6.0.3
@@ -7,10 +11,11 @@ AWS greengrassv2
 
 If using Jetson, the following must be set up using Nvidia docs
 
-Kafka Deepstream Adapter
-RTSP Server 
+1. Kafka Deepstream Adapter
+2. RTSP Server
+3. Triton Server
 
-Deepstream App:
+## Running Locally:
 
 example usage:
 ```
