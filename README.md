@@ -24,5 +24,3 @@ options:
 --configfile, -c, inference config file path
 --silent, optional
 --display, -d, display type, options: ["osd", "rtsp", "no-display"]
-
-
