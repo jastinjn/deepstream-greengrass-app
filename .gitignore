@@ -170,4 +170,4 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-models/*/1/
+artifacts/source/models/*/1/

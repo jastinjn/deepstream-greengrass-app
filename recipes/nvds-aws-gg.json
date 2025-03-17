@@ -1,0 +1,38 @@
+{
+    "RecipeFormatVersion": "2020-01-25",
+    "ComponentName": "nvds-awsgg-deployment",
+    "ComponentVersion": "1.0.xx",
+    "ComponentType": "aws.greengrass.generic",
+    "ComponentDescription": "My first deepstream application",
+    "ComponentPublisher": "Amazon",
+    "ComponentConfiguration": {
+        "DefaultConfiguration": {
+            "ConnString": "localhost;9092;quickstart-events"
+        }
+    },
+    "Manifests": [
+        {
+            "Platform": {
+                "os": "linux"
+            },
+            "Name": "Linux",
+            "Lifecycle": {
+                "Run": {
+                    "Script": "#!/bin/bash\ncd {artifacts:decompressedPath}/nvds-aws-gg\npython3 deepstream_app.py -g nvinferserver -c config_infer_primary_rtdetr_triton.yml -i file://$(pwd)/awsgg-example.mp4 --conn-str='{configuration:/ConnString}' --silent -d rtsp",
+                    "RequiresPrivilege": true
+                }
+            },
+            "Artifacts": [
+                {
+                    "Uri": "s3://your/s3/uri/package.zip",
+                    "Unarchive": "ZIP",
+                    "Permission": {
+                        "Read": "ALL",
+                        "Execute": "ALL"
+                    }
+                }
+            ]
+        }
+    ],
+    "Lifecycle": {}
+}
